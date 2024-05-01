@@ -8,6 +8,7 @@ import os
 from dotenv import load_dotenv
 from datetime import datetime as dt, timedelta, timezone
 from django.contrib.auth.hashers import make_password, check_password
+from pymongo import MongoClient
 
 from .models import *
 from .serializers import *
@@ -25,17 +26,20 @@ class Signup(APIView):
         
         try:
             candidate_user = CandidateUser.objects.filter(phone_number=phone_number)
+            candidate_user_email_check = CandidateUser.objects.filter(email=email)
         except Exception as e:
             return Response(
                 {
+                    'status': 'Failed',
                     'message': 'An error occurred, please try again later'
                 },
                 status=status.HTTP_408_REQUEST_TIMEOUT
             )
         
-        if candidate_user:
+        if candidate_user or candidate_user_email_check:
             return Response(
                 {
+                    'status': 'Failed',
                     'message': 'This user already exists'
                 },
                 status=status.HTTP_405_METHOD_NOT_ALLOWED
@@ -49,20 +53,30 @@ class Signup(APIView):
         }
         
         candidate_serializer = CandidateUserSerializer(data=user_data)
-        
-        if candidate_serializer.is_valid(raise_exception=True):
-            candidate_serializer.save()
-        
+        try:
+            if candidate_serializer.is_valid(raise_exception=True):
+                candidate_serializer.save()
+            
+                return Response(
+                    {
+                        'status': 'Passed',
+                        'message': 'You have successfully registered'
+                    },
+                    status=status.HTTP_201_CREATED
+                )
+            else:
+                return Response(
+                    {
+                        'status': 'Failed',
+                        'message': 'An error occurred'
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except Exception as e:
             return Response(
                 {
-                    'message': 'You have successfully registered'
-                },
-                status=status.HTTP_201_CREATED
-            )
-        else:
-            return Response(
-                {
-                    'message': 'An error occurred'
+                    'status': 'Failed',
+                    'message': 'An error occured'
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
@@ -73,63 +87,119 @@ class Login(APIView):
         load_dotenv()
         phone_number = request.data.get('phone_number')
         password = request.data.get('password')
+        referral_number = request.data.get('referral_number')
+        voting_code = request.data.get('voting_code')
         
-        try:
-            try:
-                candidate_user = CandidateUser.objects.filter(phone_number=phone_number).first()
-            except Exception as e:
+        host = os.getenv('DATABASE_URI')
+        client = MongoClient(host=host, port=27017)
+        database = client['voting-system']
+        admin_collection = database['AdminUsers']
+        admin_user = admin_collection.find_one(
+            {
+                'phone_number': referral_number
+            }
+        )
+        code_index = 0
+        if admin_user:
+            code = ''
+            admin_user_voting_code = admin_user['voting_code']
+            for codes in range(len(admin_user_voting_code)):
+                code = admin_user_voting_code[codes]['code']
+                if code == voting_code:
+                    code_index = codes
+                    break
+                else:
+                    continue
+            if code == '':
                 return Response(
                     {
-                        'message': 'An error occurred, please try again later'
+                        'status': 'Failed',
+                        'message': 'Voting code does not exist'
                     },
-                    status=status.HTTP_408_REQUEST_TIMEOUT
+                    status=status.HTTP_405_METHOD_NOT_ALLOWED
                 )
-            if not candidate_user:
+            if code != voting_code:
                 return Response(
                     {
-                        'message': 'User does not exist'
+                        'status': 'Failed',
+                        'message': 'Voting code does not exist'
                     },
-                    status=status.HTTP_400_BAD_REQUEST
+                    status=status.HTTP_404_NOT_FOUND
                 )
-            
-            if not check_password(password=password, encoded=candidate_user.password):
+            if phone_number not in admin_user_voting_code[code_index]['allowed_phone_numbers']:
                 return Response(
                     {
-                        'message': 'Incorrect password'
+                        'status': 'Failed',
+                        'message': 'You are not allowed to join this session'
                     },
                     status=status.HTTP_401_UNAUTHORIZED
                 )
+            try:
+                try:
+                    candidate_user = CandidateUser.objects.filter(phone_number=phone_number).first()
+                except Exception as e:
+                    return Response(
+                        {
+                            'status': 'Failed',
+                            'message': 'An error occurred, please try again later'
+                        },
+                        status=status.HTTP_408_REQUEST_TIMEOUT
+                    )
+                if not candidate_user:
+                    return Response(
+                        {
+                            'status': 'Failed',
+                            'message': 'User does not exist'
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
                 
-            jwt_instance = jwt
-            jwt_key = os.getenv('JWT_ENCODING_KEY')
-            
-            message = {
-                'message_info': {
-                    'phone_number': candidate_user.phone_number,
-                    'admin': False
-                },
-                'iat': dt.now(timezone.utc),
-                'exp': dt.now(timezone.utc)+ timedelta(hours=4)
-            }
-            
-            encoded_jwt_token = jwt_instance.encode(payload=message, key=jwt_key, algorithm='HS256')
-            
-            candidate_user.access_token = encoded_jwt_token
-            candidate_user.save()
-            
-            return Response(
-                {
-                    'message': encoded_jwt_token,
-                },
-                status=status.HTTP_200_OK
-            )
-        except Exception as e:
-            return Response(
-                {
-                    'message': 'An error occurred, please try again later'
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
+                if not check_password(password=password, encoded=candidate_user.password):
+                    return Response(
+                        {
+                            'status': 'Failed',
+                            'message': 'Incorrect password'
+                        },
+                        status=status.HTTP_401_UNAUTHORIZED
+                    )
+                    
+                jwt_instance = jwt
+                jwt_key = os.getenv('JWT_ENCODING_KEY')
+                
+                message = {
+                    'message_info': {
+                        'phone_number': candidate_user.phone_number,
+                        'admin': False,
+                        'voting_code': voting_code,
+                    },
+                    'iat': dt.now(timezone.utc),
+                    'exp': dt.now(timezone.utc)+ timedelta(hours=4)
+                }
+                
+                encoded_jwt_token = jwt_instance.encode(payload=message, key=jwt_key, algorithm='HS256')
+                
+                candidate_user.access_token = encoded_jwt_token
+                candidate_user.save()
+                
+                first_name = candidate_user.name.split()[0]
+                
+                return Response(
+                    {
+                        'status': 'Passed',
+                        'message': encoded_jwt_token,
+                        'display_name': first_name,
+                        'voting_details': admin_user_voting_code[code_index]
+                    },
+                    status=status.HTTP_200_OK
+                )
+            except Exception as e:
+                return Response(
+                    {
+                        'status': 'Failed',
+                        'message': 'An error occurred, please try again later'
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
         
         
 class Logout(APIView):

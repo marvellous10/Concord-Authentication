@@ -19,7 +19,6 @@ class Signup(APIView):
         email = request.data.get('email')
         password = request.data.get('password')
         phone_number = request.data.get('phone_number')
-        voting_code = request.data.get('voting_code')
         encrypted_password = make_password(password)
         
         user_data = {
@@ -27,7 +26,7 @@ class Signup(APIView):
             "email": email,
             "phone_number": phone_number,
             "password": encrypted_password,
-            "voting_code": voting_code
+            "voting_code": []
         }
         try:
             adminuser_serializer = AdminUserSerializer(data=user_data)
@@ -37,6 +36,7 @@ class Signup(APIView):
                 except Exception as e:
                     return Response(
                         {
+                            'status': 'Failed',
                             'message': 'An error occurred, please try again'
                         },
                         status=status.HTTP_408_REQUEST_TIMEOUT
@@ -44,18 +44,21 @@ class Signup(APIView):
                 if adminuser:
                     return Response(
                         {
+                            'status': 'Failed',
                             'message': 'The user already exists'
                         },
                         status=status.HTTP_405_METHOD_NOT_ALLOWED)
                 adminuser_serializer.save()
                 return Response(
                     {
+                        'status': 'Passed',
                         'message': 'You have registered successfully'
                     },
                     status=status.HTTP_201_CREATED)
             else:
                 return Response(
                     {
+                        'status': 'Failed',
                         'message': 'An error occurred, please try again later'
                     },
                     status=status.HTTP_400_BAD_REQUEST)
@@ -73,6 +76,7 @@ class Login(APIView):
         except Exception as e:
             return Response(
                 {
+                    'status': 'Failed',
                     'message': 'An error occurred, please try again'
                 },
                 status=status.HTTP_408_REQUEST_TIMEOUT
@@ -80,14 +84,16 @@ class Login(APIView):
         if not adminuser:
             return Response(
                 {
+                    'status': 'Failed',
                     'message': 'User does not exist'
                 },
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_404_NOT_FOUND
             )
         
         if not check_password(password=password, encoded=adminuser.password):
             return Response(
                 {
+                    'status': 'Failed',
                     'message': 'Incorrect password'
                 },
                 status=status.HTTP_401_UNAUTHORIZED
@@ -109,10 +115,13 @@ class Login(APIView):
         
         adminuser.access_token = encoded_jwt_token
         adminuser.save()
+        display_name = adminuser.name.split()[0]
         
         return Response(
             {
+                'status': 'Passed',
                 'message': encoded_jwt_token,
+                'display_name': display_name
             },
             status=status.HTTP_200_OK
         )
