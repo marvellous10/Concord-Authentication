@@ -105,19 +105,12 @@ class Login(APIView):
             admin_user_voting_code = admin_user['voting_code']
             for codes in range(len(admin_user_voting_code)):
                 code = admin_user_voting_code[codes]['code']
+                print(code)
                 if code == voting_code:
                     code_index = codes
                     break
                 else:
                     continue
-            if code == '':
-                return Response(
-                    {
-                        'status': 'Failed',
-                        'message': 'Voting code does not exist'
-                    },
-                    status=status.HTTP_405_METHOD_NOT_ALLOWED
-                )
             if code != voting_code:
                 return Response(
                     {
@@ -133,6 +126,22 @@ class Login(APIView):
                         'message': 'You are not allowed to join this session'
                     },
                     status=status.HTTP_401_UNAUTHORIZED
+                )
+            if phone_number in admin_user_voting_code[code_index]['candidates_voted']:
+                return Response(
+                    {
+                        'status': 'Failed',
+                        'message': 'You have already voted'
+                    },
+                    status=status.HTTP_406_NOT_ACCEPTABLE
+                )
+            if admin_user_voting_code[code_index]['open_session'] == False:
+                return Response(
+                    {
+                        'status': 'Failed',
+                        'message': 'Voting session is closed right now'
+                    },
+                    status=status.HTTP_405_METHOD_NOT_ALLOWED
                 )
             try:
                 try:
