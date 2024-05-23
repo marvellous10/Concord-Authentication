@@ -105,6 +105,7 @@ class Login(APIView):
             admin_user_voting_code = admin_user['voting_code']
             for codes in range(len(admin_user_voting_code)):
                 code = admin_user_voting_code[codes]['code']
+                print(code)
                 if code == voting_code:
                     code_index = codes
                     break
