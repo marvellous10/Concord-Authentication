@@ -26,7 +26,7 @@ class Signup(APIView):
             "email": email,
             "phone_number": phone_number,
             "password": encrypted_password,
-            "voting_code": []
+            #"voting_code": []
         }
         try:
             adminuser_serializer = AdminUserSerializer(data=user_data)

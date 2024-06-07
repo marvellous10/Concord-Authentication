@@ -6,7 +6,7 @@ class AdminUser(Document):
     name = StringField(required=True)
     password = StringField(required=True)
     access_token = StringField(default='none')
-    voting_code = ListField(DictField(), required=False)
+    #voting_code = ListField(DictField(), required=False)
     
     meta = {
         'collection': 'AdminUsers'
